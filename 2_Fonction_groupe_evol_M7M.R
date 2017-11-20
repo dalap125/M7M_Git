@@ -319,44 +319,15 @@ GE_M7M_ClassVol_Decal <-
     
     
     
-    #6. Déterminer quel courbe V utiliser (quand on a qu'une courbe dans la strate)
-    #6.1 Déterminer la superficie occupée par chaque classe de courbeV
-    supCourbeV <- 
-      cscpf %>% 
-      group_by(SDOM_BIO, GR_STAT_R, TYF_M7M_R, COURBE_V) %>% 
-      summarise(sumSup = sum(SUP_BRU, na.rm = TRUE))
-    
-    #6.2 Sélectionner le groupe courbeV le plus gros de chaque strate
-    #en sélectionnant la première ligne de chaque groupe après l'avoir
-    #ordonné selon l'ordre decroissante de leur superficie totale
-    supCourbeV <- 
-      supCourbeV %>% 
-      group_by(SDOM_BIO, GR_STAT_R, TYF_M7M_R) %>% 
-      arrange(desc(sumSup)) %>% 
-      slice(1) %>% 
-      ungroup() %>% 
-      
-      #6.3 Renomer la colonne pour éviter des problèmes et
-      #sélectionner seulement les courbes dont on a besoin
-      transmute(SDOM_BIO, GR_STAT_R, TYF_M7M_R,
-                COURBE_V_R = as.character(COURBE_V))
-    
-    
-    #6.4 Ajouter la COURBE_V_R (regroupée au jeu de données principal)
-    cscpf <- 
-      left_join(cscpf, supCourbeV, 
-                by = c("SDOM_BIO", "GR_STAT_R", "TYF_M7M_R"))
-    
-    
-    #6.5 Alors, si on divise le strate en 2, on utilise la COURBE_V originale,
-    #sinon on utlise la COURBE_V_R
+    #6. Déterminer quel courbe V utiliser: la v12/v34 si on divisde le groupe
+    #en 2 ou la NA
     cscpf <- 
       cscpf %>% 
       mutate(COURBE_V_R = ifelse(nombreGE %in% 2, 
                                  yes = as.character(COURBE_V),
-                                 no = as.character(COURBE_V_R)))
+                                 no = NA))
     
-    
+ 
     
     #7. Ajouter la classe de décalage correspondante à chaque courbe
     #7.1 Sélectionner les variables dont on a besoin et les transformer
