@@ -327,7 +327,7 @@ GE_M7M_ClassVol_Decal <-
                                  yes = as.character(COURBE_V),
                                  no = NA))
     
- 
+
     
     #7. Ajouter la classe de décalage correspondante à chaque courbe
     #7.1 Sélectionner les variables dont on a besoin et les transformer
@@ -346,9 +346,15 @@ GE_M7M_ClassVol_Decal <-
     
     #8. Créer la colonne de la courbe finale correspondante
     #8.1 Créer la colonne
+    #Il faut faire un ifelse selon le type de courbe pour pas ajouter
+    #2 NA à la fin quand COURBE_V_R est NA
     cscpf <- 
-      cscpf %>% mutate(courbe = paste(SDOM_BIO, GR_STAT_R, TYF_M7M_R, 
-                                      "NA", COURBE_V_R, sep = "_"))
+      cscpf %>% 
+      mutate(courbe = ifelse(COURBE_V_R %in% NA,
+                             paste(SDOM_BIO, GR_STAT_R, TYF_M7M_R, 
+                                   "NA", sep = "_"),
+                             paste(SDOM_BIO, GR_STAT_R, TYF_M7M_R, 
+                                      "NA", COURBE_V_R, sep = "_")))
     
     
     #9. Ajouter le NOM_FAMC du catalogue des clones des courbes
