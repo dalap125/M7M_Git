@@ -25,15 +25,43 @@
 #
 #   anneeDebut: année dans laquelle le calcul va commencer (le défaut est 2018)
 #   e.g. anneeDebut <- 2018
+#   nCluster_Improd: nombre maximale de clusters pour les groupes improductifs
+#   e.g. nCluster_Improd = 2
+# 
+#   nCluster_Plant: nombre maximale de clusters pour les plantations
+#   e.g. nCluster_Plant = 3
+# 
+#   nCluster_EPC: nombre maximale de clusters pour les EPCs
+#   e.g. nCluster_EPC = 3
+# 
+#   nCluster_M7M: nombre maximale de clusters pour les autres peuplements M7M
+#   e.g. nCluster_M7M = 4
 #   
-#   nCluster: nombre minimale de clusters par courbe
-#   e.g. nCluster <- 5
+#   supMinClust_Improd: superficie minimale de chaque cluster improductif 
+#   (en pourcentage de la superficie totale du groupe). 
+#   E.g. supMinClust_Improd = 10 défine une superficie minimale d'au moins 10% de 
+#   la superficied du groupe correspondant
+#   e.g. supMinClust_Improd = 10
 #   
-#   supMinClust: superficie minimale de chaque cluster (en pourcentage de
-#   la superficie totale du groupe). E.g. supMinClust = 10 défine que la 
-#   superficie minimale d'un groupe doit occuper au moins 10% de la superficie
-#   du groupe
-#   e.g. supMinClust <- 10
+#   supMinClust_Plant: superficie minimale de chaque cluster de plantation 
+#   (en pourcentage de la superficie totale du groupe). 
+#   e.g. supMinClust_Plant = 10
+#   
+#   supMinClust_EPC: superficie minimale de chaque cluster des EPC 
+#   (en pourcentage de la superficie totale du groupe). 
+#   e.g. supMinClust_EPC = 10
+#   
+#   supMinClust_M7M: superficie minimale de chaque cluster des autres M7M 
+#   (en pourcentage de la superficie totale du groupe). 
+#   e.g. supMinClust_M7M = 10
+# 
+#   traiter_7MP_Plant: indicateur logique (TRUE/FALSE) pour indiquer si on
+#   veux traiter les plantations qui on 7MP
+#   e.g. traiter_7MP_Plant = FALSE  ---> les plantations 7MP ne sont pas positionnées
+# 
+#   traiter_7MP_EPC: indicateur logique (TRUE/FALSE) pour indiquer si on
+#   veux traiter les EPCs qui on 7MP
+#   e.g. traiter_7MP_EPC = FALSE  ---> les EPCs 7MP ne sont pas positionnées
 
 
 ############################################################################
@@ -62,13 +90,30 @@
 
 
 
-algo_regroup_clust <- function(df, nCluster = 5, supMinClust = 10){
-  
-  #0. On crée la colonne qui va stocker les clusters finaux
+algo_regroup_clust <- function(df, nCluster, supMinClust){
+  # browser()
+  #0. Traitement avant-boucle 
+  #0.1 On crée la colonne qui va stocker les clusters finaux
   df <- 
     df %>% 
     mutate(clustFin = ageInit) %>% 
-    select(courbe, clustFin, sumSupAttach, supPourc, ageInit)
+    select(courbe, traitement, clustFin, sumSupAttach, supPourc, ageInit)
+  
+  #0.2 Sélectionner la valeur de nCluster et de supMinClust selon le traitement
+  nCluster <- nCluster[names(nCluster) %in% unique(df$traitement)]
+  supMinClust <- supMinClust[names(supMinClust) %in% unique(df$traitement)]
+  
+  #0.3 Si on a des courbes qui n'ont pas un traitement valide, on arrête la 
+  #fonction et les donne une valeur clustFin de NA
+  
+  if(!unique(df$traitement) %in% names(nCluster)){
+    
+    df <- 
+      df %>% 
+      transmute(courbe, ageInit, 
+                clustFin = NA)
+    return(df)
+  }
   
   #0. Commencer la boucle "while". Cette boucle continue à rouler jusqu'à
   #que les conditions définies (dans ce cas: "nrow(df) > nCluster | 
@@ -121,7 +166,7 @@ algo_regroup_clust <- function(df, nCluster = 5, supMinClust = 10){
     
     #5. Recalculer la superficie de chaque groupe
     df <- 
-      df %>% group_by(courbe, clustFin) %>% 
+      df %>% group_by(courbe, traitement, clustFin) %>% 
       summarise(sumSupAttach = sum(sumSupAttach),
                 supPourc = sum(supPourc)) %>% 
       ungroup()
@@ -217,8 +262,16 @@ posit_M7M <- function(cloneCourbes,
                       gtyfToTyf,
                       clAgeToNum,
                       anneeDebut = substr(Sys.Date(), 1, 4),  #CHECK in HORIZON: automatically extract current year,
-                      nCluster = 5,
-                      supMinClust = 10){ 
+                      nCluster_Improd = 2,
+                      nCluster_Plant = 4,
+                      nCluster_EPC = 3,
+                      nCluster_M7M = 7,
+                      supMinClust_Improd = 10,
+                      supMinClust_Plant = 20,
+                      supMinClust_EPC = 20,
+                      supMinClust_M7M = 20,
+                      traiter_7MP_Plant = FALSE,
+                      traiter_7MP_EPC = FALSE){ 
   
   #0. Charger les packages nécessaires
   require(dplyr)         #Traitement des données
@@ -233,7 +286,8 @@ posit_M7M <- function(cloneCourbes,
   #1.1.1 Identifier les variables nécessaires
   varsCscpf <- c("ID_BFEC", "GEOCODE_OR", "AN_ORIGINE", "CL_AGE", 
                  "IND_MAJ", "SUP_BRU", "SDOM_BIO", "TYPE_ECO", 
-                 "GTYF_M7M", "COURBE_V", "DEC_CLASS")
+                 "GTYF_M7M", "COURBE_V", "DEC_CLASS", 
+                 "HAUT_CONF") #hauteur confimée (M4M, 4MP-M7M et 7MP)
   
   #1.1.2 S'il y a au moins une variable manquante
   if(!all(varsCscpf %in% names(cscpf))){
@@ -368,10 +422,10 @@ posit_M7M <- function(cloneCourbes,
   
   
   
-  #2. Déterminer l'âge des peuplements dans l'année initielle (défaut = 2018)
+  #2. Traiter le jeu de données des polygones
+  #2.1 Déterminer l'âge des peuplements dans l'année initielle (défaut = 2018)
   #Si on a l'année d'origine, on peut faire 2018 - AN_ORIGINE, 
   #sinon , il faut faire la classe d'âge  + (2018 - année de production des données)
-  #2.1 Joindre l'age de production des données au jeu de données principal
   #2.1.1 Joindre les jeux de données
   procDon <- 
     left_join(cscpf %>% mutate(GEOCODE_OR = as.character(GEOCODE_OR)), 
@@ -469,6 +523,59 @@ posit_M7M <- function(cloneCourbes,
                           sep = "_"))
   
   
+  #2.8 Créer la colonne des traitements (Improd, PL, EPC ou M7M).
+  #Pour chaque groupe on va donner des seuils de nombre de clusters
+  #et des superficies minimales différentes
+  procDon <- 
+    procDon %>% 
+    mutate(traitement =
+             
+             #2.8.1 Les Improds avec M7M
+             case_when(.$IMPROD %in% "SNAT" & 
+                         .$HAUT_CONF %in% c("4MP-M7M", "M4M") ~ "SNAT",
+                       
+              #2.8.2 Les plantations (avec moins ou plus de 7M)
+                       .$ORIGINE %in% "P" ~ "PL",
+              
+              #2.8.3 Les EPCs (avec moins ou plus de 7M)
+                       .$PERTURB %in% "EPC" ~ "EPC",
+              
+              #2.8.4 Les autres peuplements M7M
+                       .$HAUT_CONF %in% c("4MP-M7M", "M4M") ~ "M7M",
+                       TRUE ~ "7MP"))
+
+  
+  
+  #2.9 Déterminer les polygones qu'on veux traiter selon les paramètres
+  #d'entré. Est-ce qu'on veux traiter les peuplements 7MP qui sont des 
+  #plantations et des EPCs? Les variables traiter_7MP_Plant et 
+  #traiter_7MP_EPC sont des variables logiques (TRUE/FALSE)
+  procDon <- 
+    procDon %>% 
+    mutate(polysTraiter = 
+             case_when(
+               
+               #2.9.1 Si c'est PL, 7MP et on veux traiter des plantations 7MP
+                       .$traitement %in% "PL" & .$HAUT_CONF %in% "7MP" &
+                         traiter_7MP_Plant ~ TRUE,
+                       
+               #2.9.2 Si c'est EPC, 7MP et on veux traiter des EPC 7MP               
+                       .$traitement %in% "EPC" & .$HAUT_CONF %in% "7MP" &
+                         traiter_7MP_EPC ~ TRUE,
+                       .$traitement %in% "PL" & .$HAUT_CONF %in% "7MP" &
+                 
+               #2.9.3 Si c'est PL, 7MP et on NE VEUX PAS traiter des plantations 7MP
+                         !traiter_7MP_Plant ~ FALSE,
+               
+               #2.9.4 Si c'est EPC, 7MP et on NE VEUX PAS traiter des EPC 7MP
+                       .$traitement %in% "EPC" & .$HAUT_CONF %in% "7MP" &
+                         !traiter_7MP_EPC ~ FALSE,
+               
+               #2.9.5 Si ce sont des traitements M7M
+                       !is.na(.$traitement) ~ TRUE, 
+                       TRUE ~ FALSE))
+  
+  
   
   #3. Processer les données du catalogue de courbes
   #3.0 Calculer le champs GE
@@ -491,7 +598,7 @@ posit_M7M <- function(cloneCourbes,
     summarise(NOM_FAMC = unique(NOM_FAMC)[1],
               vol_tot = sum(VOL_HA)) %>% 
     
-    #3.2 Sélectionner seulement le côté gauche (i.e. croissance) des 
+    #3.3 Sélectionner seulement le côté gauche (i.e. croissance) des 
     #courbes en sélectionnant toutes les observations (de chaque GE)
     #entre la première et l'age qui a le volume le plus gros
     group_by(GE) %>% 
@@ -501,17 +608,26 @@ posit_M7M <- function(cloneCourbes,
   
   
   #4. Calculer la superficie des groupes
+  #4.1 Faire l'objet qui regroupe les seuils de nombre de cluster et
+  #de superficie minimale par traitement
+  nCluster <- c("SNAT" = nCluster_Improd, "PL" = nCluster_Plant,
+                "EPC" = nCluster_EPC, "M7M" = nCluster_M7M)
+  supMinClust <- c("SNAT" = supMinClust_Improd, "PL" = supMinClust_Plant,
+                   "EPC" = supMinClust_EPC, "M7M" = supMinClust_M7M)
+  
+  
+  
   #4.1 Calculer la superficie occupée par chaque point d'attachement 
   #(somme des combinaisons courbe + point d'attachement [ageInit])
   regroupClusters <- 
     procDon %>% 
-    group_by(courbe, ageInit) %>% 
+    group_by(courbe, traitement, ageInit) %>% 
     summarize(sumSupAttach = sum(SUP_BRU)) %>% 
     
     #4.2 Calculer le pourcentage de la superficie de chaque point d'attachement 
     #dans le groupe (donc, somme de la pourcentage dans chaque groupe
     #sera 100%)
-    group_by(courbe) %>% 
+    group_by(courbe, traitement) %>% 
     mutate(supPourc = round(sumSupAttach / sum(sumSupAttach) * 100, 2)) %>% 
     
     
@@ -535,7 +651,7 @@ posit_M7M <- function(cloneCourbes,
   #4.4 Joindre le jeu de de données avec le cluster final au jeu de données
   #principal
   procDon <- left_join(procDon, regroupClusters,
-                       by = c("courbe", "ageInit"))
+                       by = c("courbe", "ageInit", "traitement"))
   
   
   
@@ -555,7 +671,7 @@ posit_M7M <- function(cloneCourbes,
            clustFin = as.numeric(as.character(clustFin))) %>% 
     left_join(regCloneCourbes %>% 
                 transmute(courbe = as.character(GE), 
-                          NOM_FAMC = as.character(NOM_FAMC),
+                          # NOM_FAMC = as.character(NOM_FAMC),
                           AGE = as.numeric(as.character(AGE))),
               by = "courbe") 
   
@@ -580,18 +696,26 @@ posit_M7M <- function(cloneCourbes,
     select(-diffAge)
   
   
+  
   #6. Mettre les points 4 et 5 ensemble: on va maintenant joindre les 2 
   #jeux de données de façon à définir le point d'attachement de la courbe
   #(pointsAttach$AGE) pour chaque polygone (procDon$clustFin)
   #6.1 Joindre les 2 jeux de données
   output <- 
     left_join(procDon,
-              pointsAttach, by = c("courbe", "clustFin")) %>% 
+              pointsAttach, by = c("courbe", "clustFin", "NOM_FAMC")) %>% 
     
-    #6.2 Sélectionner les 3 colonnes qu'on veut
+  #6.2 Vérifier qu'on fait pas des positionnements pour les polygones 
+  #qu'on ne veut pas (ça ne devrait pas arriver, mais en tout cas...)
+    mutate(AGE = ifelse(polysTraiter %in% FALSE, NA,
+                        AGE)) %>% 
+    
+  #6.3 Sélectionner les 3 colonnes qu'on veut
     transmute(ID_BFEC = as.character(ID_BFEC), 
               GE_M7M = courbe,
               NOM_FAMC = NOM_FAMC,
+              HAUT_CONF = HAUT_CONF,
+              traitement = traitement,
               pointAttach = AGE) %>% 
     as.data.frame()
   
