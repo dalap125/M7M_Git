@@ -286,8 +286,8 @@ posit_M7M <- function(cloneCourbes,
   #1.1.1 Identifier les variables nécessaires
   varsCscpf <- c("ID_BFEC", "GEOCODE_OR", "AN_ORIGINE", "CL_AGE", 
                  "IND_MAJ", "SUP_BRU", "SDOM_BIO", "TYPE_ECO", 
-                 "GTYF_M7M", "COURBE_V", "DEC_CLASS", 
-                 "HAUT_CONF") #hauteur confimée (M4M, 4MP-M7M et 7MP)
+                 "GTYF_M7M", "COURBE_V", "DEC_CLASS", "Improd",
+                 "ORIGINE", "PERTURB", "HAUT_CONF") #hauteur confimée (M4M, 4MP-M7M et 7MP)
   
   #1.1.2 S'il y a au moins une variable manquante
   if(!all(varsCscpf %in% names(cscpf))){
@@ -402,12 +402,12 @@ posit_M7M <- function(cloneCourbes,
   }
   
   
-  #1.6 Objet "gtyfToTyf" (Tableau de correspondance entre lles GTYFs
+  #1.7 Objet "gtyfToTyf" (Tableau de correspondance entre lles GTYFs
   #et les TYFs)
-  #1.6.1 Identifier les variables nécessaires
+  #1.7.1 Identifier les variables nécessaires
   varsGtyfToTyf <- c("SDOM_BIO", "GR_STAT_R", "GTYF_M7M_R", "TYF_M7M_R")
   
-  #1.6.2 S'il y a au moins une variable manquante
+  #1.7.2 S'il y a au moins une variable manquante
   if(!all(varsGtyfToTyf %in% names(gtyfToTyf))){
     
     #On l'identifie
@@ -489,7 +489,28 @@ posit_M7M <- function(cloneCourbes,
               typeEcoToFamStat %>% mutate_all(as.character),
               by = c("SDOM_BIO", "TYPE_ECO"))
   
-  #2.4.2 Ajouter les groupes de station regroupés
+  #2.4.2 Tester que toutes les combinaisons de GR_STAT et TYF existent
+  #dans notre tableau de conversion
+  grStat_tyf_manq <- 
+    procDon %>% filter(!GTYF_M7M %in% c(NA, "NA", "na", "Na"))
+  if(any(!paste(grStat_tyf_manq$GR_STAT, grStat_tyf_manq$GTYF_M7M) %in%
+         paste(tabResumRegroupe$GR_STAT, tabResumRegroupe$GTYF_M7M))){
+    
+    grStat_tyf_manq <- 
+      grStat_tyf_manq %>% 
+      filter(!paste(GR_STAT, GTYF_M7M) %in%
+               paste(tabResumRegroupe$GR_STAT, tabResumRegroupe$GTYF_M7M)) %>% 
+      transmute(grStat_tyf_manq = paste(GR_STAT, GTYF_M7M)) %>% 
+      distinct(grStat_tyf_manq) %>% unlist %>% unname
+    
+    warning("Les combinaisons de GR_STAT et TYF ", 
+            paste(grStat_tyf_manq, collapse = ", "),
+            " ne sont pas presentes dans le tableau de regroupement ",
+            "des GR_STAT et TYF (argument 'tabResumRegroupe').")
+    
+  }
+  
+  #2.4.3 Ajouter les groupes de station regroupés
   procDon <- 
     left_join(procDon %>% 
                 mutate(SDOM_BIO = as.character(SDOM_BIO),
@@ -514,7 +535,7 @@ posit_M7M <- function(cloneCourbes,
   #automatiquement tous les 7MP et tous les codes de terrain)
   procDon <- 
     procDon %>% 
-    filter(!COURBE_V %in% c(NA, "NA", "na", "Na")) %>% 
+    #filter(!COURBE_V %in% c(NA, "NA", "na", "Na")) %>% 
     
     
     #2.7 Ajouter la classe de décalage au champs "courbe"
@@ -531,19 +552,19 @@ posit_M7M <- function(cloneCourbes,
     mutate(traitement =
              
              #2.8.1 Les Improds avec M7M
-             case_when(.$IMPROD %in% "SNAT" & 
+             case_when(.$Improd %in% "SNAT" & 
                          .$HAUT_CONF %in% c("4MP-M7M", "M4M") ~ "SNAT",
                        
-              #2.8.2 Les plantations (avec moins ou plus de 7M)
+                       #2.8.2 Les plantations (avec moins ou plus de 7M)
                        .$ORIGINE %in% "P" ~ "PL",
-              
-              #2.8.3 Les EPCs (avec moins ou plus de 7M)
+                       
+                       #2.8.3 Les EPCs (avec moins ou plus de 7M)
                        .$PERTURB %in% "EPC" ~ "EPC",
-              
-              #2.8.4 Les autres peuplements M7M
+                       
+                       #2.8.4 Les autres peuplements M7M
                        .$HAUT_CONF %in% c("4MP-M7M", "M4M") ~ "M7M",
                        TRUE ~ "7MP"))
-
+  
   
   
   #2.9 Déterminer les polygones qu'on veux traiter selon les paramètres
@@ -556,24 +577,24 @@ posit_M7M <- function(cloneCourbes,
              case_when(
                
                #2.9.1 Si c'est PL, 7MP et on veux traiter des plantations 7MP
-                       .$traitement %in% "PL" & .$HAUT_CONF %in% "7MP" &
-                         traiter_7MP_Plant ~ TRUE,
-                       
+               .$traitement %in% "PL" & .$HAUT_CONF %in% "7MP" &
+                 traiter_7MP_Plant ~ TRUE,
+               
                #2.9.2 Si c'est EPC, 7MP et on veux traiter des EPC 7MP               
-                       .$traitement %in% "EPC" & .$HAUT_CONF %in% "7MP" &
-                         traiter_7MP_EPC ~ TRUE,
-                       .$traitement %in% "PL" & .$HAUT_CONF %in% "7MP" &
+               .$traitement %in% "EPC" & .$HAUT_CONF %in% "7MP" &
+                 traiter_7MP_EPC ~ TRUE,
+               .$traitement %in% "PL" & .$HAUT_CONF %in% "7MP" &
                  
-               #2.9.3 Si c'est PL, 7MP et on NE VEUX PAS traiter des plantations 7MP
-                         !traiter_7MP_Plant ~ FALSE,
+                 #2.9.3 Si c'est PL, 7MP et on NE VEUX PAS traiter des plantations 7MP
+                 !traiter_7MP_Plant ~ FALSE,
                
                #2.9.4 Si c'est EPC, 7MP et on NE VEUX PAS traiter des EPC 7MP
-                       .$traitement %in% "EPC" & .$HAUT_CONF %in% "7MP" &
-                         !traiter_7MP_EPC ~ FALSE,
+               .$traitement %in% "EPC" & .$HAUT_CONF %in% "7MP" &
+                 !traiter_7MP_EPC ~ FALSE,
                
                #2.9.5 Si ce sont des traitements M7M
-                       !is.na(.$traitement) ~ TRUE, 
-                       TRUE ~ FALSE))
+               !is.na(.$traitement) ~ TRUE, 
+               TRUE ~ FALSE))
   
   
   
@@ -661,7 +682,7 @@ posit_M7M <- function(cloneCourbes,
   #tous les doublons)
   pointsAttach <-
     procDon %>% 
-    distinct(courbe, NOM_FAMC, clustFin) %>% 
+    distinct(courbe, clustFin) %>% 
     
     #5.2 Faire le join du jeu de données avec le catalogue de courbes. Après
     #le join on va avoir un gros jeux de données, et pour chaque point 
@@ -671,7 +692,7 @@ posit_M7M <- function(cloneCourbes,
            clustFin = as.numeric(as.character(clustFin))) %>% 
     left_join(regCloneCourbes %>% 
                 transmute(courbe = as.character(GE), 
-                          # NOM_FAMC = as.character(NOM_FAMC),
+                          NOM_FAMC = as.character(NOM_FAMC),
                           AGE = as.numeric(as.character(AGE))),
               by = "courbe") 
   
@@ -703,14 +724,14 @@ posit_M7M <- function(cloneCourbes,
   #6.1 Joindre les 2 jeux de données
   output <- 
     left_join(procDon,
-              pointsAttach, by = c("courbe", "clustFin", "NOM_FAMC")) %>% 
+              pointsAttach, by = c("courbe", "clustFin")) %>% 
     
-  #6.2 Vérifier qu'on fait pas des positionnements pour les polygones 
-  #qu'on ne veut pas (ça ne devrait pas arriver, mais en tout cas...)
+    #6.2 Vérifier qu'on fait pas des positionnements pour les polygones 
+    #qu'on ne veut pas (ça ne devrait pas arriver, mais en tout cas...)
     mutate(AGE = ifelse(polysTraiter %in% FALSE, NA,
                         AGE)) %>% 
     
-  #6.3 Sélectionner les 3 colonnes qu'on veut
+    #6.3 Sélectionner les 3 colonnes qu'on veut
     transmute(ID_BFEC = as.character(ID_BFEC), 
               GE_M7M = courbe,
               NOM_FAMC = NOM_FAMC,
