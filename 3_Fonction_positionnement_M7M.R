@@ -714,7 +714,7 @@ posit_M7M <- function(cloneCourbes,
     ungroup() %>% 
     
     #5.5 On n'a plus besoin de la différence d'âge
-    select(-diffAge)
+    select(courbe, clustFin, AGE)
   
   
   
