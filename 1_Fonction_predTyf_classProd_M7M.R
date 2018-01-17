@@ -249,7 +249,7 @@ pred_Tyf_Vol_Prod_M7M <-
     # #On a besoin de nous assurer que la hauteur est une variable numérique
     # 
     # if(P7M == FALSE){
-    #   
+
       donneesProc <-
         peeOri %>%
         mutate(HAUTEUR = as.numeric(as.character(HAUTEUR)),
@@ -637,15 +637,6 @@ pred_Tyf_Vol_Prod_M7M <-
         
         
         #8.0.4 Prédire le GTYF
-        # asd_pasCouv <- inputParSDOM %>% filter(TYPE_COUV %in% c("", NA, NULL))
-        # asd_couv <- inputParSDOM %>% filter(!TYPE_COUV %in% c("", NA, NULL))
-        # 
-        # asd_pasCouv$predGTYF <- as.character(predict(rfGTyf_pasCouv_sdom, asd_pasCouv))
-        # asd_couv$predGTYF <- as.character(predict(rfGTyf_couv_sdom, asd_couv))
-        # 
-        # inputParSDOM <- bind_rows(asd_pasCouv, asd_couv) %>% arrange(ID_BFEC)
-        
-        
         inputParSDOM <-
           inputParSDOM %>%
 
@@ -716,24 +707,17 @@ pred_Tyf_Vol_Prod_M7M <-
                 tyfToGtyf %>% mutate(TYF = as.character(TYF)),     #des avertissements inutiles
                 by = "TYF")
     
-    
+ 
     #8.2.2 On garde le TYF original pour les peuplements de 7M+
     donneesProc <- 
       donneesProc %>% 
-      mutate(GTYF_M7M = ifelse(HAUTEUR >= 7, as.character(TYF),
-                               
-                               #8.2.3 Pour les 4-6M, on garde le GTYF original si on connaissait le TYF 
-                               #      (ex. si on n'avait pas des RxFx)
-                               ifelse(HAUTEUR >=4 & HAUTEUR <= 6 & !GTYF %in% NA, 
-                                      as.character(GTYF),
-                                      
-                                      #8.2.4 Si on ne connaissait pas le TYF des 4-6M, on utilise notre prédiction                           
-                                      ifelse(HAUTEUR >=4 & HAUTEUR <= 6 & GTYF %in% NA, 
-                                             as.character(predGTYF),
-                                             
-                                             #8.2.5 Pour les peuplements restants (3M et moins), on garde la prédiction de random forest
-                                             as.character(predGTYF)))),
-             GTYF_M7M = factor(GTYF_M7M))   
+      mutate(GTYF_M7M = 
+               ifelse(HAUTEUR <= 3 | HAUTEUR %in% c(NA, "NA", ""), as.character(predGTYF),
+                      ifelse(HAUTEUR >= 4 & HAUTEUR <= 6 & is.na(GTYF), as.character(predGTYF),
+                             ifelse(HAUTEUR >= 4 & HAUTEUR <= 6 & !is.na(GTYF), as.character(GTYF),
+                                    ifelse(HAUTEUR >= 7, as.character(TYF),
+                                           as.character(predGTYF))))),
+             GTYF_M7M = factor(GTYF_M7M))
     
     
     #8.3 Traiter des prédictions des classes de volume
