@@ -430,8 +430,38 @@ pred_Tyf_Vol_Prod_M7M <-
     niveauxVegPot <- list('6O' = rfGTyf_couv$`6O`$forest$xlevels$vegPot,
                           '5O' = rfGTyf_couv$`5O`$forest$xlevels$vegPot)
     
+
     
-    #6.1 CLASSE DE DRAINAGE: Adapter la classe de drainage en utilisant juste 
+    #6.1 Si on a des valeurs manquantes, on va chercher la moyenne ou la
+    #valeur dominante
+    donneesProc <- 
+      donneesProc %>% 
+      mutate(CL_DRAI = ifelse(is.na(CL_DRAI), 
+                              names(sort(table(CL_DRAI),decreasing=TRUE)[1]),
+                              CL_DRAI),
+             CL_PENT = ifelse(is.na(CL_PENT), 
+                              names(sort(table(CL_PENT),decreasing=TRUE)[1]),
+                              CL_PENT),
+             TYPE_ECO = ifelse(is.na(TYPE_ECO), 
+                              names(sort(table(TYPE_ECO),decreasing=TRUE)[1]),
+                              TYPE_ECO),
+             PRECI_TOT = ifelse(is.na(PRECI_TOT), mean(PRECI_TOT, na.rm = TRUE), PRECI_TOT),
+             PRECI_UTI = ifelse(is.na(PRECI_UTI), mean(PRECI_UTI, na.rm = TRUE), PRECI_UTI),
+             PRECI_NEIG = ifelse(is.na(PRECI_NEIG), mean(PRECI_NEIG, na.rm = TRUE), PRECI_NEIG),
+             TMOY_SCR = ifelse(is.na(TMOY_SCR), mean(TMOY_SCR, na.rm = TRUE), TMOY_SCR),
+             PJOUR_GEL = ifelse(is.na(PJOUR_GEL), mean(PJOUR_GEL, na.rm = TRUE), PJOUR_GEL),
+             ARID_TOT = ifelse(is.na(ARID_TOT), mean(ARID_TOT, na.rm = TRUE), ARID_TOT),
+             RADIA_TOT = ifelse(is.na(RADIA_TOT), mean(RADIA_TOT, na.rm = TRUE), RADIA_TOT),
+             RADIA_SCR = ifelse(is.na(RADIA_SCR), mean(RADIA_SCR, na.rm = TRUE), RADIA_SCR),
+             TMOY_AN = ifelse(is.na(TMOY_AN), mean(TMOY_AN, na.rm = TRUE), TMOY_AN),
+             DPV_UTI = ifelse(is.na(DPV_UTI), mean(DPV_UTI, na.rm = TRUE), DPV_UTI),
+             PP_NEIGE = ifelse(is.na(PP_NEIGE), mean(PP_NEIGE, na.rm = TRUE), PP_NEIGE),
+             TMAX_AN = ifelse(is.na(TMAX_AN), mean(TMAX_AN, na.rm = TRUE), TMAX_AN),
+             TMOY_JUIL = ifelse(is.na(TMOY_JUIL), mean(TMOY_JUIL, na.rm = TRUE), TMOY_JUIL))
+             
+             
+    
+    #6.2 CLASSE DE DRAINAGE: Adapter la classe de drainage en utilisant juste 
     #le premier caractére
     donneesProc <- 
       donneesProc %>% 
@@ -445,7 +475,7 @@ pred_Tyf_Vol_Prod_M7M <-
              CL_DRAI = factor(CL_DRAI, levels = niveauxDrainage),
              
              
-             #6.2 CLASSE DE PENTE: Adapter la classe de pente en la convertissant dans une variable
+             #6.3 CLASSE DE PENTE: Adapter la classe de pente en la convertissant dans une variable
              #numérique avec la valeur médiane de la classe
              CL_PENT = ifelse(CL_PENT %in% "A", 1.5,
                               ifelse(CL_PENT %in% "B", 6,
@@ -456,7 +486,7 @@ pred_Tyf_Vol_Prod_M7M <-
              CL_PENT = as.numeric(CL_PENT),
              
              
-             #6.3 CLASSE D'ORIGINE: adapter le champ d'origine en NATUREL (NAT), coupe avec
+             #6.4 CLASSE D'ORIGINE: adapter le champ d'origine en NATUREL (NAT), coupe avec
              #protection de la régénération (CPR) ou coupe totale (CT)
              ORIGINE = case_when(
                .$ORIGINE %in% c("BR", "CHT", "DT", 
@@ -464,26 +494,31 @@ pred_Tyf_Vol_Prod_M7M <-
                .$ORIGINE %in% c("CDV", "CPH", "CPR", "CPT") ~   "CPR",
                TRUE ~      "CT"), #Toute les autres codes sont des coupes puis
                                   #on considere que tous les NAs sont des CTs
+                                  #
+             #Si on a des NAs, on cherche la valeur dominante
+             ORIGINE = ifelse(is.na(ORIGINE), 
+                              names(sort(table(ORIGINE),decreasing=TRUE)[1]),
+                              ORIGINE),
              ORIGINE = factor(ORIGINE, levels = niveauxOrigine)) %>% 
       
       
-      #6.4 DENSITE: si la densité est NA, on lui donne une valeur de 0
+      #6.5 DENSITE: si la densité est NA, on lui donne une valeur de 0
       mutate(DENSITE = as.numeric(as.character(DENSITE)),
              
              
-             #6.5 Type de couvert: Il faut vérifier que les niveaux de cette 
+             #6.6 Type de couvert: Il faut vérifier que les niveaux de cette 
              #variable sont les niveaux que le modéle de random forest utilise
              TYPE_COUV = factor(TYPE_COUV, levels = niveauxCouv))
     
     
-    #6.6 FAMILLE DE STATION FORESTIéRE 
+    #6.7 FAMILLE DE STATION FORESTIéRE 
     ##Cette variable est plus compliqué parce que les groupes qu'on fait peuvent 
     #varier selon le sous-domaine (i.e. selon les données disponibles). Par exemple,
     #"RES" est un groupe trés importante dans la 6Ouest mais pas dans la 3Ouest.
     #Alors, on a fait un tableau de correspondance que doit étre mis é jour pour
     #chaque sous-domaine. Les groupes de FAM_STAT acceptées doivent étre les groupes
     #acceptés par les modéles de random forest du sous-domaine correspondant.
-    #6.6.1 D'abord il faut sélectionner les variables qu'on veut de la table de 
+    #6.7.1 D'abord il faut sélectionner les variables qu'on veut de la table de 
     #correspondance
     typeEcoToFamStat <- 
       typeEcoToFamStat %>% 
@@ -491,7 +526,7 @@ pred_Tyf_Vol_Prod_M7M <-
              TYPE_ECO = as.character(TYPE_ECO)) %>% 
       distinct()  #Pour enlever les doublons
     
-    #6.6.2 Aprés il faut faire un join
+    #6.7.2 Aprés il faut faire un join
     #On convertit SDOM_BIO et TYPE_ECO en variables de caractéres
     #pour éviter des messages d'erreur inutiles
     donneesProc <- 
@@ -502,7 +537,7 @@ pred_Tyf_Vol_Prod_M7M <-
                 by = c("SDOM_BIO", "TYPE_ECO"))
     
     
-    #6.7 VéGéTATION POTENTIELLE : 
+    #6.8 VéGéTATION POTENTIELLE : 
     #Méme chose que la FAM_STAT.
     #Cette variable est plus compliqué parce que les groupes qu'on fait peuvent 
     #varier selon le sous-domaine (i.e. selon les données disponibles). Par exemple,
@@ -511,24 +546,24 @@ pred_Tyf_Vol_Prod_M7M <-
     #chaque sous-domaine. Les groupes de vegPot acceptées doivent étre les groupes
     #acceptés par les modéles de random forest du sous-domaine correspondant. Les
     #regroupements suivent les catégories du modéle SUCCéS (quand possible)
-    #6.7.1 Créer la variable de la végetation potentielle "réelle"
+    #6.8.1 Créer la variable de la végetation potentielle "réelle"
     donneesProc <- 
       donneesProc %>% 
       mutate(vegPot = substr(TYPE_ECO, 1, 3)) %>% 
       
       
-      #6.7.2 Ajouter la valeur de veg pot convertit (i.e. le niveaux de vegetation
+      #6.8.2 Ajouter la valeur de veg pot convertit (i.e. le niveaux de vegetation
       #potentielle acceptées par les modéles de random forest changent selon le
       #sous-domaine)
       left_join(vegPot_SDOM, by = c("SDOM_BIO", "vegPot" = "vegPot_Ori")) %>% 
       
-      #6.7.3 Enlever la valeur originale de vegPot et la remplacer par la
+      #6.8.3 Enlever la valeur originale de vegPot et la remplacer par la
       #vegPot_Conv de la table de pilotage
       select(-vegPot) %>% 
       rename(vegPot = vegPot_Conv)
     
     
-    #6.7.4 Maintenant qu'on n'a plus besoin du TYPE_ECO, il faut 
+    #6.8.4 Maintenant qu'on n'a plus besoin du TYPE_ECO, il faut 
     #le remplacer par "vegPot" dans l'objet des variables é utiliser 
     #dans random forest
     varsRf <- ifelse(varsRf %in% "TYPE_ECO", "vegPot", varsRf)
