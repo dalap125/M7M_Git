@@ -714,7 +714,7 @@ posit_M7M <- function(cloneCourbes,
     ungroup() %>% 
     
     #5.5 On n'a plus besoin de la différence d'âge
-    select(courbe, clustFin, AGE)
+    select(courbe, clustFin, AGE, NOM_FAMC)
   
   
   
@@ -723,7 +723,8 @@ posit_M7M <- function(cloneCourbes,
   #(pointsAttach$AGE) pour chaque polygone (procDon$clustFin)
   #6.1 Joindre les 2 jeux de données
   output <- 
-    left_join(procDon,
+    left_join(procDon %>% select(ID_BFEC, courbe, clustFin, 
+                                 HAUT_CONF, traitement, polysTraiter),
               pointsAttach, by = c("courbe", "clustFin")) %>% 
     
     #6.2 Vérifier qu'on fait pas des positionnements pour les polygones 
