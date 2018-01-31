@@ -56,11 +56,12 @@
 #   (Ex. testClAgeToNum <- read.csv2(file.path(mainDir, "Inputs", 
 #                       "classe_age_to_numerique.csv"), stringsAsFactors = FALSE))
 
-#  8. propSupGrosGroupes: superficie maximale cumulative occupée par les groupes 
-#   qu'il faut diviser en 2 (courbes v12 et 34). Par example un valeur de 50
-#   veux dire que les strates dont la somme de la superficie occupe au moins 50% 
-#   du térritoire seront divisées en 2 (courbe v12 et v34)
-#   (Ex. propSupGrosGroupes = 50)
+#  8. propSupGrosGroupes: proportion de la superficie totale occupee par les gros
+#  groupes qu'il faut diviser en 2 (courbes v12 et 34). Par exemple, une
+#  valeur de 30 veux dire que tous les groupes qui occupent 30% ou plus
+#  de la superficie totale des polygones naturelles (i.e. pas de EPC ni de
+#  plantation) seront divises en 2 (courbe v12 et v34)
+#   (Ex. propSupGrosGroupes = 30)
 
 
 #Voici la structure de cette fonction:
@@ -95,7 +96,7 @@ GE_M7M_ClassVol_Decal <-
            gtyfToTyf,
            cloneCourbes,
            clAgeToNum,
-           propSupGrosGroupes = 50){
+           propSupGrosGroupes = 30){
     
     
     #0. Vérifier que les packages dont on a besoin sont chargés
@@ -107,6 +108,7 @@ GE_M7M_ClassVol_Decal <-
     #1.1.1 Identifier les variables nécessaires
     varsCscpf <- c("ID_BFEC", "GEOCODE_OR", "SDOM_BIO", "TYPE_ECO", 
                    "GTYF_M7M", "COURBE_V", 
+                   "TYPE_COURB", "ESS_RET", "PL", "TYF", 
                    "SUP_BRU", "HAUTEUR", "CL_AGE", "AN_ORIGINE")
     
     #1.1.2 S'il y a au moins une variable manquante
@@ -293,11 +295,32 @@ GE_M7M_ClassVol_Decal <-
     
     
     #3. Calculer la somme cummulative des superficies des groupes regroupés
-    #3.1 Regrouper les données par GTYF et GR_STAT regroupés.
-    #Selon Franéois on n'a pas besoin d'inclure le sous-domaine dans les
-    #groupes. éa va étre fait aprés quand on décide la courbe é utiliser
-    sumSup <- 
+    #3.0 Sépararer le jeu de données selons les polygones naturelles, les
+    #plantations et les EPCs
+    #3.0.1 Les plantations sont un type de courbe qui a des PL (e.g. PL16, 
+    #PL20 et PLLI), ont une essence retenue et un IQS
+    cscpf_pl <- 
+      cscpf %>% filter(grepl("PL", TYPE_COURB) & 
+                         !ESS_RET %in% c(NA, "NA", "na", "Na") &
+                         grepl("IQS", PL))
+    
+    #3.0.2 Les EPCs ont un type de courbe "EPC" et ont un TYF
+    cscpf_epc <- 
+      cscpf %>% filter(TYPE_COURB %in% "EPC" & 
+                         !TYF %in% c(NA, "NA", "na", "Na"))
+    
+    #3.0.3 Les Naturels sont tous les autres polygones
+    #Comme le type de courbe peut être différent (e.g. des plantations
+    #non réussies, il faut redéfinir le code du type de courbe)
+    cscpf_nat <- 
       cscpf %>% 
+      filter(!ID_BFEC %in% c(cscpf_pl$ID_BFEC, cscpf_epc$ID_BFEC)) %>% 
+      mutate(TYPE_COURB = factor("A", levels = levels(cscpf$TYPE_COURB)))
+    
+    
+    #3.1 Regrouper les polygones naturelles par GTYF et GR_STAT regroupés.
+    sumSup <- 
+      cscpf_nat %>% 
       group_by(SDOM_BIO, GTYF_M7M_R, GR_STAT_R) %>% 
       
       #3.2 Calculer la superficie totale de chaque groupe
@@ -308,26 +331,28 @@ GE_M7M_ClassVol_Decal <-
       arrange(desc(supTot)) %>% 
       
       #3.4 Calculer la somme cummulative et la pourcentage
-      mutate(cumSup = cumsum(supTot),
-             percCumSup = (cumSup/sum(supTot))*100)
+      mutate(propSup = supTot/sum(supTot)*100)
+      # mutate(cumSup = cumsum(supTot),
+      #        percCumSup = (cumSup/sum(supTot))*100)
     
     
     
     #4. Déterminer quels groupes il faut diviser en 2 (courbes v12 et 34).
-    #On va définir un seuil de superficie cumulative (défaut = 50%). éa veut
+    #On va définir un seuil de superficie cumulative (défaut = 50%). Ca veut
     #dire que les strates dont la somme de la superficie occupe 50% du 
     #térritoire seront divisées en 2 (courbe v12 et v34)
     #4.1 Déterminer les strates qu'on va diviser en 2
     sumSup <- 
       sumSup %>%  
-      mutate(nombreGE = ifelse(percCumSup > propSupGrosGroupes, 1, 2))
+      mutate(nombreGE = ifelse(propSup >= propSupGrosGroupes, 2, 1))
     
     
     #4.2 Ajouter le nombre de GEs par groupe au jeu de données principal
     #On sélectionne les colonnes qu'on veut de sumSup avant de faire le join
     #pour ajouter seulement la colonne qu'on veut (nombreGE)
-    cscpf <- 
-      left_join(cscpf, 
+    #On a juste besoin de faire ça pour les polygones naturelles
+    cscpf_nat <- 
+      left_join(cscpf_nat, 
                 sumSup %>% select(SDOM_BIO, GTYF_M7M_R, GR_STAT_R, nombreGE),
                 by = c("SDOM_BIO", "GTYF_M7M_R", "GR_STAT_R"))
     
@@ -335,24 +360,27 @@ GE_M7M_ClassVol_Decal <-
     
     #5. Convertir les GTYFs en TYFs (pour qu'on puisse trouver une courbe équivalente
     #plus tard). Cette nouvelle variable va s'appeler "TYF_M7M_R"
-    cscpf <- left_join(x = cscpf, 
+    #On a juste besoin de faire ça pour les polygones naturelles
+    cscpf_nat <- left_join(x = cscpf_nat, 
                        y = gtyfToTyf %>% 
                          mutate_all(as.character),
                        by = c("SDOM_BIO", "GR_STAT_R", "GTYF_M7M_R"))   
     
     
     
-    #6. Déterminer quel courbe V utiliser: la v12/v34 si on divisde le groupe
+    #6. Déterminer quel courbe V utiliser: la v12/v34 si on divise le groupe
     #en 2 ou la NA
-    cscpf <- 
-      cscpf %>% 
+    #On a juste besoin de faire ça pour les polygones naturelles
+    cscpf_nat <- 
+      cscpf_nat %>% 
       mutate(COURBE_V_R = ifelse(nombreGE %in% 2, 
                                  yes = as.character(COURBE_V),
                                  no = NA))
     
 
     
-    #7. Ajouter la classe de décalage correspondante é chaque courbe
+    #7. Ajouter la classe de décalage correspondante a chaque courbe
+    #On a juste besoin de faire ça pour les polygones naturelles
     #7.1 Sélectionner les variables dont on a besoin et les transformer
     #dans des caractéres pour éviter des avertissements inutiles
     classDecal <- 
@@ -361,70 +389,115 @@ GE_M7M_ClassVol_Decal <-
       mutate_all(as.character)
     
     #7.2 Faire le join
-    cscpf <- left_join(cscpf, classDecal,
+    cscpf_nat <- left_join(cscpf_nat, classDecal,
                        by = c("SDOM_BIO", "GR_STAT_R", "TYF_M7M_R", 
                               "COURBE_V_R" = "courbeV"))
     
     
     
     #8. Créer la colonne de la courbe finale correspondante
-    #8.1 Créer la colonne
+    #8.1 Créer les colonnes "courbe
+    #8.0.1 Polygonnes naturelles
     #Il faut faire un ifelse selon le type de courbe pour pas ajouter
     #2 NA é la fin quand COURBE_V_R est NA
-    cscpf <- 
-      cscpf %>% 
+    cscpf_nat <- 
+      cscpf_nat %>% 
       mutate(courbe = ifelse(COURBE_V_R %in% NA,
-                             paste(SDOM_BIO, GR_STAT_R, TYF_M7M_R, 
+                             paste(TYPE_COURB, SDOM_BIO, GR_STAT_R, TYF_M7M_R, 
                                    "NA", sep = "_"),
-                             paste(SDOM_BIO, GR_STAT_R, TYF_M7M_R, 
-                                      "NA", COURBE_V_R, sep = "_")))
+                             paste(TYPE_COURB, SDOM_BIO, GR_STAT_R, TYF_M7M_R, 
+                                   "NA", COURBE_V_R, sep = "_")))
+    
+    #8.0.2 Plantations
+    cscpf_pl <- 
+      cscpf_pl %>% 
+      mutate(courbe = paste(TYPE_COURB, GR_STAT_R, ESS_RET, PL, 
+                            sep = "_"))
+    
+    ##########################################################################
+    ##########################################################################
+    #VÉRIFIER!!!!
+    #8.0.3 EPCs
+    cscpf_epc <- 
+      cscpf_epc %>% 
+      mutate(courbe = paste(TYPE_COURB, SDOM_BIO, GR_STAT_R, TYF, sep = "_"))
+    ##########################################################################
+    ##########################################################################
+    
     
     
     #8.2 Générer le champs concatene de la courbe pour le catalogue de courbes
-    if(!"courbe" %in% names(cloneCourbes)){
-      
-      cloneCourbes <- 
+    #8.2.1 Courbes naturelles
+      courbes_nat <- 
         cloneCourbes %>% 
+        filter(TYPE_COURB %in% "A") %>% 
         mutate(courbe = ifelse(CLASSE %in% c(NA, "NA", "na", "Na"),
-                               paste(SDOM_BIO, GR_STATION, TYF, 
+                               paste(TYPE_COURB, SDOM_BIO, GR_STATION, TYF, 
                                      "NA", sep = "_"),
-                               paste(SDOM_BIO, GR_STATION, TYF, 
+                               paste(TYPE_COURB, SDOM_BIO, GR_STATION, TYF, 
                                      "NA", CLASSE, sep = "_")))
-    }
+      
+    #8.2.2 Courbes Plantations
+      courbes_pl <- 
+        cloneCourbes %>% 
+        filter(grepl("PL", TYPE_COURB)) %>% 
+        mutate(courbe = paste(TYPE_COURB, GR_STATION, ESS_RET, PL, 
+                              sep = "_"))
+      
+    #8.2.3 Courbes EPC
+    ##########################################################################
+    ##########################################################################
+    #VÉRIFIER!!!!
+      courbes_epc <- 
+        cloneCourbes %>% 
+        filter(TYPE_COURB %in% "EPC") %>% 
+        mutate(courbe = paste(TYPE_COURB, SDOM_BIO, GR_STATION, TYF, sep = "_"))
+    ##########################################################################
+    ##########################################################################
     
+    #8.3 Joindre les 3 catalogues de courbes
+    cloneCourbes <- bind_rows(courbes_nat, courbes_pl, courbes_epc)
     
-    
-    #9. Ajouter le NOM_FAMC du catalogue des clones des courbes
+      
+      
+    #9. Ajouter le NOM_FAMC du catalogue des clones des courbes 
+    #au jeu de donnees principal
     #9.1 Sélectionner les colonnes qu'on veut
     nomFam <-
       cloneCourbes %>%
       select(courbe, DEC_CLASS, NOM_FAMC) %>%
-      distinct()
+      distinct() %>% 
+      mutate_all(as.character)
     
     
     #9.2 Donner un avertissement si on a des courbes dans le jeu de donnees
     #qui n'existent pas dans le catalogue
-    if(any(!cscpf$courbe %in% nomFam$courbe)){
+    existCourbe <- 
+      c(unique(cscpf_nat$courbe), unique(cscpf_pl$courbe), 
+        unique(cscpf_epc$courbe))
+    
+    if(any(!existCourbe %in% nomFam$courbe)){
       
       courbesManq <- 
-        cscpf %>% 
-        filter(!courbe %in% nomFam$courbe) %>% 
-        distinct(courbe) %>% unlist %>% unname %>% as.character()
+        existCourbe[!existCourbe %in% nomFam$courbe]
       
       warning("Les courbes ", paste(courbesManq, collapse = ", "),
               " n'existent pas dans le catalogue de courbes.")
       
-      
     }
     
 
-    #9.3 Faire le join
-    cscpf <- left_join(cscpf, nomFam, by = c("courbe", "DEC_CLASS"))
+    #9.3 Faire le join par groupe
+    cscpf_nat <- left_join(cscpf_nat, nomFam, by = c("courbe", "DEC_CLASS"))
+    cscpf_pl <- left_join(cscpf_pl, nomFam, by = "courbe")
+    cscpf_epc <- left_join(cscpf_epc, nomFam, by = "courbe")
+    
+    #9.4 Joindre les 3 jeux de donnees (NAT + PL + EPC)
+    cscpf <- bind_rows(cscpf_nat, cscpf_pl, cscpf_epc)
     
     
     
-    
-    #9. Sélectionner les colonnes qu'on veut sortir
+    #10. Sélectionner les colonnes qu'on veut sortir
     output <- 
       cscpf %>% distinct(ID_BFEC, courbe, NOM_FAMC, DEC_CLASS) 
     
