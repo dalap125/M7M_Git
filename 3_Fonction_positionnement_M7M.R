@@ -91,7 +91,7 @@
 
 
 algo_regroup_clust <- function(df, nCluster, supMinClust){
-  # browser()
+  
   #0. Traitement avant-boucle 
   #0.1 On crée la colonne qui va stocker les clusters finaux
   df <- 
@@ -287,6 +287,7 @@ posit_M7M <- function(cloneCourbes,
   varsCscpf <- c("ID_BFEC", "GEOCODE_OR", "AN_ORIGINE", "CL_AGE", 
                  "IND_MAJ", "SUP_BRU", "SDOM_BIO", "TYPE_ECO", 
                  "GTYF_M7M", "COURBE_V", "DEC_CLASS", "Improd",
+                 "TYPE_COURB", "ESS_RET", "PL",
                  "ORIGINE", "PERTURB", "HAUT_CONF") #hauteur confimée (M4M, 4MP-M7M et 7MP)
   
   #1.1.2 S'il y a au moins une variable manquante
@@ -344,7 +345,8 @@ posit_M7M <- function(cloneCourbes,
   #et leur valeur numériques correspondantes)
   #1.4.1 Identifier les variables nécessaires
   varsCourbes <- c("SDOM_BIO", "GR_STATION", "TYF", "CLASSE", 
-                   "AGE", "VOL_HA", "DEC_CLASS", "NOM_FAMC")
+                   "AGE", "VOL_HA", "DEC_CLASS", "NOM_FAMC",
+                   "TYPE_COURB", "ESS_RET", "PL")
   
   #1.4.2 S'il y a au moins une variable manquante
   if(!all(varsCourbes %in% names(cloneCourbes))){
@@ -493,6 +495,7 @@ posit_M7M <- function(cloneCourbes,
   #dans notre tableau de conversion
   grStat_tyf_manq <- 
     procDon %>% filter(!GTYF_M7M %in% c(NA, "NA", "na", "Na"))
+  
   if(any(!paste(grStat_tyf_manq$GR_STAT, grStat_tyf_manq$GTYF_M7M) %in%
          paste(tabResumRegroupe$GR_STAT, tabResumRegroupe$GTYF_M7M))){
     
@@ -528,46 +531,61 @@ posit_M7M <- function(cloneCourbes,
   procDon <- left_join(procDon, 
                        gtyfToTyf %>% mutate_all(as.character),
                        by = c("SDOM_BIO", "GR_STAT_R", "GTYF_M7M_R"))
-  
-  
-  #2.6 Enlever les polygones qui n'ont pas de courbe (comme le champs 
-  #"DEC_CLASS" a été crée pour les M7M, en enlevant les NAs on enlève 
-  #automatiquement tous les 7MP et tous les codes de terrain)
-  procDon <- 
+    
+    
+  #2.6 Ajouter la classe de décalage au champs "courbe"
+  #Il faut le faire d'une façon individuelle pour chaque groupe de donnees
+  #(naturelle, plantation et EPC)
+  #2.6.1 Plantations
+  procDon_pl <-
     procDon %>% 
-    #filter(!COURBE_V %in% c(NA, "NA", "na", "Na")) %>% 
+    filter(grepl("PL", TYPE_COURB) & !ESS_RET %in% c(NA, "NA", "na", "Na") &
+             grepl("IQS", PL)) %>% 
+    mutate(courbe = paste(TYPE_COURB, GR_STAT_R, ESS_RET, PL, sep = "_"))
     
-    
-    #2.7 Ajouter la classe de décalage au champs "courbe"
+  #2.6.2 EPC
+  procDon_epc <- 
+    procDon %>% filter(TYPE_COURB %in% "EPC" & 
+                       !TYF %in% c(NA, "NA", "na", "Na")) %>% 
+    mutate(courbe = paste(TYPE_COURB, SDOM_BIO, GR_STAT_R, TYF, sep = "_"))
+  
+  #2.6.3 Naturel
+  procDon_nat <- 
+    procDon %>% 
+    filter(!ID_BFEC %in% c(procDon_pl$ID_BFEC, procDon_epc$ID_BFEC)) %>% 
+    mutate(TYPE_COURB = "A") %>% 
     mutate(courbe = paste(SDOM_BIO, GR_STAT_R, TYF_M7M_R, 
                           "NA", COURBE_V, DEC_CLASS, 
                           sep = "_"))
   
+  #2.6.4 Rejoindre les 3 jeux de donnees (probablem c'est pas la meilleure 
+  #façon de faire ça, mais tant pis)
+  procDon <- bind_rows(procDon_nat, procDon_pl, procDon_epc)
   
-  #2.8 Créer la colonne des traitements (Improd, PL, EPC ou M7M).
+  
+  #2.7 Créer la colonne des traitements (Improd, PL, EPC ou M7M).
   #Pour chaque groupe on va donner des seuils de nombre de clusters
   #et des superficies minimales différentes
   procDon <- 
     procDon %>% 
     mutate(traitement =
              
-             #2.8.1 Les Improds avec M7M
+             #2.7.1 Les Improds avec M7M
              case_when(.$Improd %in% "SNAT" & 
                          .$HAUT_CONF %in% c("4MP-M7M", "M4M") ~ "SNAT",
                        
-                       #2.8.2 Les plantations (avec moins ou plus de 7M)
+                       #2.72 Les plantations (avec moins ou plus de 7M)
                        .$ORIGINE %in% "P" ~ "PL",
                        
-                       #2.8.3 Les EPCs (avec moins ou plus de 7M)
+                       #2.7.3 Les EPCs (avec moins ou plus de 7M)
                        .$PERTURB %in% "EPC" ~ "EPC",
                        
-                       #2.8.4 Les autres peuplements M7M
+                       #2.7.4 Les autres peuplements M7M
                        .$HAUT_CONF %in% c("4MP-M7M", "M4M") ~ "M7M",
                        TRUE ~ "7MP"))
   
   
-  
-  #2.9 Déterminer les polygones qu'on veux traiter selon les paramètres
+  #2.8 Déterminer les polygones qu'on veux traiter selon les paramètres
   #d'entré. Est-ce qu'on veux traiter les peuplements 7MP qui sont des 
   #plantations et des EPCs? Les variables traiter_7MP_Plant et 
   #traiter_7MP_EPC sont des variables logiques (TRUE/FALSE)
@@ -576,41 +594,68 @@ posit_M7M <- function(cloneCourbes,
     mutate(polysTraiter = 
              case_when(
                
-               #2.9.1 Si c'est PL, 7MP et on veux traiter des plantations 7MP
+               #2.8.1 Si c'est PL, 7MP et on veux traiter des plantations 7MP
                .$traitement %in% "PL" & .$HAUT_CONF %in% "7MP" &
                  traiter_7MP_Plant ~ TRUE,
                
-               #2.9.2 Si c'est EPC, 7MP et on veux traiter des EPC 7MP               
+               #2.8.2 Si c'est EPC, 7MP et on veux traiter des EPC 7MP               
                .$traitement %in% "EPC" & .$HAUT_CONF %in% "7MP" &
-                 traiter_7MP_EPC ~ TRUE,
+                 traiter_7MP_EPC ~ TRUE, 
+               
+               #2.8.3 Si c'est PL, 7MP et on NE VEUX PAS traiter des plantations 7MP
                .$traitement %in% "PL" & .$HAUT_CONF %in% "7MP" &
-                 
-                 #2.9.3 Si c'est PL, 7MP et on NE VEUX PAS traiter des plantations 7MP
                  !traiter_7MP_Plant ~ FALSE,
                
-               #2.9.4 Si c'est EPC, 7MP et on NE VEUX PAS traiter des EPC 7MP
+               #2.8.4 Si c'est EPC, 7MP et on NE VEUX PAS traiter des EPC 7MP
                .$traitement %in% "EPC" & .$HAUT_CONF %in% "7MP" &
                  !traiter_7MP_EPC ~ FALSE,
                
-               #2.9.5 Si ce sont des traitements M7M
-               !is.na(.$traitement) ~ TRUE, 
-               TRUE ~ FALSE))
+               #2.8.5 Si ce sont d'autres traitements 7MP, on ne veut pas les traiter 
+               .$traitement %in% "7MP" ~ FALSE, 
+               
+               #2.8.6 Si ce sont des traitements M7M, on veux les traiter
+               TRUE ~ TRUE))
   
   
   
   #3. Processer les données du catalogue de courbes
-  #3.0 Calculer le champs GE
+  #3.0 Calculer le champs GE pour chaque grpi+e
   cloneCourbes <- 
-    cloneCourbes %>% mutate(GE = paste(SDOM_BIO, GR_STATION, TYF, 
-                                       "NA", CLASSE, DEC_CLASS, sep = "_"))
+    cloneCourbes %>% 
+    mutate(GE = 
+             case_when(.$TYPE_COURB %in% "A" ~ 
+                            paste(.$SDOM_BIO, .$GR_STATION, .$TYF, "NA", 
+                                  .$CLASSE, .$DEC_CLASS, sep = "_"),
+                       grepl("PL", .$TYPE_COURB) ~
+                         paste(.$TYPE_COURB, .$GR_STATION, .$ESS_RET, .$PL, 
+                               sep = "_"),
+                       .$TYPE_COURB %in% "EPC" ~
+                         paste(.$TYPE_COURB, .$SDOM_BIO, .$GR_STATION, .$TYF, 
+                               sep = "_"))
+    )
   
   
-  #3.1 Sélectionner seulement les courbes qui sont dans notre jeu de données 
+  #3.1 Vérifier que toutes les courbes dont on a besoin sont dans notre 
+  #jeu de données et faire un avertissement s'ils nous manquent des courbes
+  courbsManq <- 
+    unique(procDon$courbe) %in% cloneCourbes$GE
+  
+  if(!all(courbsManq)){
+    
+    courbsManq <- unique(procDon$courbe)[!courbsManq]
+    
+    warning("Les courbes suivantes ne sont pas disponibles dans le ",
+            "catalogue de courbes: ", paste(courbsManq, collapse = ", ") )
+    
+  }
+  
+  
+  #3.2 Sélectionner seulement les courbes qui sont dans notre jeu de données 
   cloneCourbes <- 
     cloneCourbes %>% filter(GE %in% unique(procDon$courbe))
   
   
-  #3.2 Calculer le volume total par age (somme de tous
+  #3.3 Calculer le volume total par age (somme de tous
   #les valeurs regroupés par ge et age; on avait le volume
   #de plusieurs essences)
   regCloneCourbes <- 
@@ -637,8 +682,7 @@ posit_M7M <- function(cloneCourbes,
                    "EPC" = supMinClust_EPC, "M7M" = supMinClust_M7M)
   
   
-  
-  #4.1 Calculer la superficie occupée par chaque point d'attachement 
+  #4.2 Calculer la superficie occupée par chaque point d'attachement 
   #(somme des combinaisons courbe + point d'attachement [ageInit])
   regroupClusters <- 
     procDon %>% 
