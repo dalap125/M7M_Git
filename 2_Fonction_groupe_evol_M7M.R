@@ -107,7 +107,7 @@ GE_M7M_ClassVol_Decal <-
     #1.1 Objet "cscpf" (jeu de données principal)
     #1.1.1 Identifier les variables nécessaires
     varsCscpf <- c("ID_BFEC", "GEOCODE_OR", "SDOM_BIO", "TYPE_ECO", 
-                   "GTYF_M7M", "COURBE_V", 
+                   "GTYF_M7M", "COURBE_V", "Improd",
                    "TYPE_COURB", "ESS_RET", "PL", "TYF", 
                    "SUP_BRU", "HAUTEUR", "CL_AGE", "AN_ORIGINE")
     
@@ -206,7 +206,7 @@ GE_M7M_ClassVol_Decal <-
     #1.6 Objet "cloneCourbes" (Tableau de conversion des GTYFs en TYFs)
     #1.6.1 Identifier les variables nécessaires
     varsCloneCourbes <- c("SDOM_BIO", "GR_STATION", "TYF", "CLASSE", 
-                          "AGE", "HAUT_MOY", "EXTRAPOL", "DEC_CLASS")
+                          "AGE", "DEC_CLASS")
     
     #1.6.2 S'il y a au moins une variable manquante
     if(!all(varsCloneCourbes %in% names(cloneCourbes))){
@@ -297,25 +297,38 @@ GE_M7M_ClassVol_Decal <-
     #3. Calculer la somme cummulative des superficies des groupes regroupés
     #3.0 Sépararer le jeu de données selons les polygones naturelles, les
     #plantations et les EPCs
-    #3.0.1 Les plantations sont un type de courbe qui a des PL (e.g. PL16, 
-    #PL20 et PLLI), ont une essence retenue et un IQS
+    #3.0.1 Les improductifs
+    #Il faut aussi mettre leur type de courbe comme "A" (par exemple, on
+    #peut avoir des plantations (PL16) qui sont devenus des Improds)
+    cscpf_improd <- 
+      cscpf %>% 
+      filter(Improd %in% c("SNAT", "snat", "_snat", "_SNAT"))%>% 
+      mutate(TYPE_COURB = "A")
+    
+    #3.0.2 Les plantations sont un type de courbe qui a des PL (e.g. PL16, 
+    #PL20 et PLLI), ont une essence retenue, un IQS et ne sont pas
+    #improductifs
     cscpf_pl <- 
       cscpf %>% filter(grepl("PL", TYPE_COURB) & 
                          !ESS_RET %in% c(NA, "NA", "na", "Na") &
-                         grepl("IQS", PL))
+                         grepl("IQS", PL) &
+                         !Improd %in% c("SNAT", "snat", "_snat", "_SNAT"))
     
-    #3.0.2 Les EPCs ont un type de courbe "EPC" et ont un TYF
+    #3.0.3 Les EPCs ont un type de courbe "EPC" et ont un TYF
+    #et ne sont pas improductifs
     cscpf_epc <- 
       cscpf %>% filter(TYPE_COURB %in% "EPC" & 
-                         !TYF %in% c(NA, "NA", "na", "Na"))
+                         !TYF %in% c(NA, "NA", "na", "Na") &
+                         !Improd %in% c("SNAT", "snat", "_snat", "_SNAT"))
     
-    #3.0.3 Les Naturels sont tous les autres polygones
+    #3.0.4 Les Naturels sont tous les autres polygones
     #Comme le type de courbe peut être différent (e.g. des plantations
     #non réussies, il faut redéfinir le code du type de courbe)
     cscpf_nat <- 
       cscpf %>% 
-      filter(!ID_BFEC %in% c(cscpf_pl$ID_BFEC, cscpf_epc$ID_BFEC)) %>% 
-      mutate(TYPE_COURB = factor("A", levels = levels(cscpf$TYPE_COURB)))
+      filter(!ID_BFEC %in% c(cscpf_improd$ID_BFEC, cscpf_pl$ID_BFEC, 
+                             cscpf_epc$ID_BFEC)) %>% 
+      mutate(TYPE_COURB = "A")
     
     
     #3.1 Regrouper les polygones naturelles par GTYF et GR_STAT regroupés.
@@ -373,9 +386,9 @@ GE_M7M_ClassVol_Decal <-
     #On a juste besoin de faire ça pour les polygones naturelles
     cscpf_nat <- 
       cscpf_nat %>% 
-      mutate(COURBE_V_R = ifelse(nombreGE %in% 2, 
+      mutate(COURBE_V_R = as.character(ifelse(nombreGE %in% 2, 
                                  yes = as.character(COURBE_V),
-                                 no = NA))
+                                 no = NA)))
     
 
     
@@ -414,16 +427,15 @@ GE_M7M_ClassVol_Decal <-
       mutate(courbe = paste(TYPE_COURB, GR_STAT_R, ESS_RET, PL, 
                             sep = "_"))
     
-    ##########################################################################
-    ##########################################################################
-    #VÉRIFIER!!!!
     #8.0.3 EPCs
     cscpf_epc <- 
       cscpf_epc %>% 
       mutate(courbe = paste(TYPE_COURB, SDOM_BIO, GR_STAT_R, TYF, sep = "_"))
-    ##########################################################################
-    ##########################################################################
     
+    #8.0.4 Improductifs
+    cscpf_improd <- 
+      cscpf_improd %>% 
+      mutate(courbe = paste(SDOM_BIO, "SNAT"))
     
     
     #8.2 Générer le champs concatene de la courbe pour le catalogue de courbes
@@ -445,18 +457,21 @@ GE_M7M_ClassVol_Decal <-
                               sep = "_"))
       
     #8.2.3 Courbes EPC
-    ##########################################################################
-    ##########################################################################
-    #VÉRIFIER!!!!
       courbes_epc <- 
         cloneCourbes %>% 
         filter(TYPE_COURB %in% "EPC") %>% 
         mutate(courbe = paste(TYPE_COURB, SDOM_BIO, GR_STATION, TYF, sep = "_"))
-    ##########################################################################
-    ##########################################################################
+      
+    #8.2.3 Courbes EPC
+      courbes_improd <- 
+        cloneCourbes %>% 
+        filter(grepl("SNAT", NOM_FAMC)) %>% 
+        mutate(courbe = paste(SDOM_BIO, "SNAT"))
+               
     
     #8.3 Joindre les 3 catalogues de courbes
-    cloneCourbes <- bind_rows(courbes_nat, courbes_pl, courbes_epc)
+    cloneCourbes <- 
+      bind_rows(courbes_nat, courbes_pl, courbes_epc, courbes_improd)
     
       
       
@@ -474,7 +489,7 @@ GE_M7M_ClassVol_Decal <-
     #qui n'existent pas dans le catalogue
     existCourbe <- 
       c(unique(cscpf_nat$courbe), unique(cscpf_pl$courbe), 
-        unique(cscpf_epc$courbe))
+        unique(cscpf_epc$courbe), unique(cscpf_improd$courbe))
     
     if(any(!existCourbe %in% nomFam$courbe)){
       
@@ -491,9 +506,11 @@ GE_M7M_ClassVol_Decal <-
     cscpf_nat <- left_join(cscpf_nat, nomFam, by = c("courbe", "DEC_CLASS"))
     cscpf_pl <- left_join(cscpf_pl, nomFam, by = "courbe")
     cscpf_epc <- left_join(cscpf_epc, nomFam, by = "courbe")
+    cscpf_improd <- left_join(cscpf_improd, nomFam, by = "courbe")
+    
     
     #9.4 Joindre les 3 jeux de donnees (NAT + PL + EPC)
-    cscpf <- bind_rows(cscpf_nat, cscpf_pl, cscpf_epc)
+    cscpf <- bind_rows(cscpf_nat, cscpf_pl, cscpf_epc, cscpf_improd)
     
     
     
