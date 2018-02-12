@@ -580,7 +580,7 @@ posit_M7M <- function(cloneCourbes,
                        #2.7.3 Les EPCs (avec moins ou plus de 7M)
                        .$TYPE_COURB %in% "EPC" ~ "EPC",
                        
-                       #2.7.4 Les autres peuplements M7M
+                       #2.7.4 Les autres peuplements M7M 
                        .$HAUT_CONF %in% c("4MP-M7M", "M4M") ~ "M7M",
                        TRUE ~ "7MP"))
   
