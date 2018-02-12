@@ -574,11 +574,11 @@ posit_M7M <- function(cloneCourbes,
              case_when(.$Improd %in% "SNAT" & 
                          .$HAUT_CONF %in% c("4MP-M7M", "M4M") ~ "SNAT",
                        
-                       #2.72 Les plantations (avec moins ou plus de 7M)
-                       .$ORIGINE %in% "P" ~ "PL",
+                       #2.7.2 Les plantations (avec moins ou plus de 7M)
+                       .$TYPE_COURB %in% c("PL16", "PL20") ~ "PL",
                        
                        #2.7.3 Les EPCs (avec moins ou plus de 7M)
-                       .$PERTURB %in% "EPC" ~ "EPC",
+                       .$TYPE_COURB %in% "EPC" ~ "EPC",
                        
                        #2.7.4 Les autres peuplements M7M
                        .$HAUT_CONF %in% c("4MP-M7M", "M4M") ~ "M7M",
